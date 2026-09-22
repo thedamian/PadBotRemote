@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>PadBot Remote</title>
+	<script>
+		(() => {
+			const param = new URLSearchParams(window.location.search).get("scoutTheme");
+			const theme =
+				param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+			document.documentElement.setAttribute("data-theme", theme);
+		})();
+	</script>
+	<style>
+		:root {
+			color-scheme: light;
+			--cp-bg: #f7f4ef;
+			--cp-bg-elevated: #fcfbf8;
+			--cp-surface: #ffffff;
+			--cp-surface-soft: #f5f5f5;
+			--cp-border: #dedede;
+			--cp-border-strong: #919191;
+			--cp-text: #242424;
+			--cp-text-muted: #5c5c5c;
+			--cp-text-soft: #6f6f6f;
+			--cp-accent: #b11f4b;
+			--cp-accent-hover: #9a1a41;
+			--cp-accent-soft: rgba(177, 31, 75, 0.08);
+			--cp-accent-fg: #ffffff;
+			--cp-success: #16a34a;
+			--cp-danger: #dc2626;
+			--cp-warning: #f59e0b;
+			--cp-link: #0078d4;
+			--cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+			--cp-overlay: rgba(255, 255, 255, 0.8);
+			--cp-panel: rgba(255, 255, 255, 0.86);
+			--cp-panel-strong: rgba(255, 255, 255, 0.96);
+			--cp-sheen: rgba(255, 255, 255, 0.55);
+			--cp-highlight: rgba(177, 31, 75, 0.12);
+		}
+		html[data-theme="dark"] {
+			color-scheme: dark;
+			--cp-bg: #3d3b3a;
+			--cp-bg-elevated: #343231;
+			--cp-surface: #292929;
+			--cp-surface-soft: #2e2e2e;
+			--cp-border: #474747;
+			--cp-border-strong: #5f5f5f;
+			--cp-text: #dedede;
+			--cp-text-muted: #919191;
+			--cp-text-soft: #b0b0b0;
+			--cp-accent: #fd8ea1;
+			--cp-accent-hover: #fb7b91;
+			--cp-accent-soft: rgba(253, 142, 161, 0.14);
+			--cp-accent-fg: #1a1a1a;
+			--cp-success: #4ade80;
+			--cp-danger: #f87171;
+			--cp-warning: #fbbf24;
+			--cp-link: #4da6ff;
+			--cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+			--cp-overlay: rgba(41, 41, 41, 0.88);
+			--cp-panel: rgba(41, 41, 41, 0.72);
+			--cp-panel-strong: rgba(41, 41, 41, 0.96);
+			--cp-sheen: rgba(255, 255, 255, 0.04);
+			--cp-highlight: rgba(253, 142, 161, 0.12);
+		}
+
+		* { box-sizing: border-box; }
+		body {
+			align-items: center;
+			background: var(--cp-bg);
+			color: var(--cp-text);
+			display: flex;
+			font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+			justify-content: center;
+			margin: 0;
+			min-height: 100vh;
+			padding: 24px;
+		}
+		main { max-width: 440px; width: 100%; }
+		.panel {
+			background: var(--cp-surface);
+			border: 1px solid var(--cp-border);
+			border-radius: 16px;
+			box-shadow: 0 0 2px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.14);
+			padding: 24px;
+		}
+		h1 { font-size: 1.5rem; margin: 0; }
+		p { color: var(--cp-text-muted); line-height: 1.5; margin: 8px 0 20px; }
+		.status {
+			background: var(--cp-surface-soft);
+			border: 1px solid var(--cp-border);
+			border-radius: 0.625rem;
+			color: var(--cp-text-muted);
+			font-size: 0.9rem;
+			margin: 16px 0;
+			min-height: 44px;
+			padding: 12px;
+		}
+		.status.connected { border-color: var(--cp-success); color: var(--cp-success); }
+		.status.error { border-color: var(--cp-danger); color: var(--cp-danger); }
+		button {
+			background: var(--cp-surface);
+			border: 1px solid var(--cp-border-strong);
+			border-radius: 0.625rem;
+			color: var(--cp-text);
+			cursor: pointer;
+			font: inherit;
+			font-weight: 650;
+			min-height: 58px;
+			padding: 10px 12px;
+		}
+		button:hover:not(:disabled) { background: var(--cp-surface-soft); }
+		button:focus-visible { outline: 3px solid var(--cp-link); outline-offset: 2px; }
+		button:disabled { cursor: not-allowed; opacity: .5; }
+		.connect { background: var(--cp-accent); border-color: var(--cp-accent); color: var(--cp-accent-fg); width: 100%; }
+		.connect:hover:not(:disabled) { background: var(--cp-accent-hover); }
+		.movement { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); margin-top: 20px; }
+		.movement .blank { visibility: hidden; }
+		.movement .stop { background: var(--cp-danger); border-color: var(--cp-danger); color: var(--cp-accent-fg); }
+		.headings { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; margin-top: 10px; }
+		.speeds { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); margin-top: 10px; }
+		.speeds button { min-height: 46px; padding: 8px; }
+		.speeds button.active { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-accent); }
+		.debug { border-top: 1px solid var(--cp-border); margin-top: 20px; padding-top: 18px; }
+		.debug h2 { font-size: 1rem; margin: 0 0 6px; }
+		.debug p { font-size: .85rem; margin: 0 0 10px; }
+		.debug-row { display: grid; gap: 10px; grid-template-columns: 1fr auto; }
+		.debug input { background: var(--cp-surface); border: 1px solid var(--cp-border-strong); border-radius: .625rem; color: var(--cp-text); font: inherit; min-width: 0; padding: 10px 12px; }
+		.debug button { min-height: 42px; }
+		.log { border-top: 1px solid var(--cp-border); margin-top: 20px; padding-top: 18px; }
+		.log h2 { font-size: 1rem; margin: 0 0 6px; }
+		.log p { font-size: .85rem; margin: 0 0 10px; }
+		.log-output { background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: .625rem; color: var(--cp-text); font: 0.75rem/1.45 ui-monospace, Consolas, monospace; margin: 0; max-height: 210px; min-height: 90px; overflow: auto; padding: 10px; white-space: pre-wrap; word-break: break-word; }
+		.log-actions { display: flex; justify-content: end; margin-top: 8px; }
+		.log-actions button { min-height: 36px; }
+		.caption { color: var(--cp-text-soft); display: block; font-size: .8rem; margin-top: 18px; text-align: center; }
+	</style>
+</head>
+<body>
+	<main>
+		<section class="panel" aria-labelledby="title">
+			<h1 id="title">PadBot Remote</h1>
+			<p>Tap a direction to keep moving at medium speed. Tap <strong>STOP</strong> to halt the robot.</p>
+			<button id="connect" class="connect" type="button">CONNECT ROBOT</button>
+			<div id="status" class="status" role="status">Connect a PadBot to begin.</div>
+
+			<div class="movement" aria-label="Driving controls">
+				<span class="blank" aria-hidden="true"></span>
+				<button type="button" data-direction="forward" disabled>▲<br>FORWARD</button>
+				<span class="blank" aria-hidden="true"></span>
+				<button type="button" data-direction="left" disabled>◀<br>LEFT</button>
+				<button type="button" class="stop" id="stop" disabled>■<br>STOP</button>
+				<button type="button" data-direction="right" disabled>▶<br>RIGHT</button>
+				<span class="blank" aria-hidden="true"></span>
+				<button type="button" data-direction="backward" disabled>▼<br>BACKWARD</button>
+				<span class="blank" aria-hidden="true"></span>
+			</div>
+			<div class="headings" aria-label="Neck controls">
+				<button type="button" data-direction="headUp" disabled>NECK UP</button>
+				<button type="button" data-direction="headDown" disabled>NECK DOWN</button>
+			</div>
+			<div class="speeds" aria-label="Speed controls">
+				<button type="button" data-speed="low" disabled>LOW</button>
+				<button type="button" data-speed="medium" disabled>MED</button>
+				<button type="button" data-speed="fast" disabled>FAST</button>
+				<button type="button" data-speed="faster" disabled>LVL 4</button>
+				<button type="button" data-speed="maximum" disabled>LVL 5</button>
+				<button type="button" data-speed="top" disabled>TOP</button>
+			</div>
+			<section class="debug" aria-labelledby="debug-title">
+				<h2 id="debug-title">Command test</h2>
+				<p>Send one command. Motion commands continue until you press <strong>STOP</strong>.</p>
+				<div class="debug-row">
+					<input id="raw-command" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Try X1, X4, X2, X3, or ;" disabled aria-label="Raw PadBot command">
+					<button id="send-command" type="button" disabled>SEND</button>
+				</div>
+			</section>
+			<section class="log" aria-labelledby="log-title">
+				<h2 id="log-title">Robot diagnostic log</h2>
+				<p>Incoming BLE replies are shown raw and decoded when recognized.</p>
+				<pre id="robot-log" class="log-output" role="log" aria-live="polite">Waiting for robot connection…</pre>
+				<div class="log-actions"><button id="clear-log" type="button">CLEAR LOG</button></div>
+			</section>
+			<small class="caption">Keyboard: arrows to move · Space or Esc to stop</small>
+		</section>
+	</main>
+
+	<script type="module">
+		// Versioned import prevents an already-open tab retaining the pre-sendCommand module.
+		import PadBot from "./RobotLibrary/padbot.js?v=20260921-sdk-protocol";
+
+		const robot = new PadBot({ speed: "top", protocolMode: "sdk" });
+		const connectButton = document.querySelector("#connect");
+		const stopButton = document.querySelector("#stop");
+		const directionButtons = [...document.querySelectorAll("[data-direction]")];
+		const speedButtons = [...document.querySelectorAll("[data-speed]")];
+		const rawCommand = document.querySelector("#raw-command");
+		const sendCommandButton = document.querySelector("#send-command");
+		const robotLog = document.querySelector("#robot-log");
+		const clearLogButton = document.querySelector("#clear-log");
+		const status = document.querySelector("#status");
+		const logEntries = [];
+
+		function addLog(message) {
+			const time = new Date().toLocaleTimeString();
+			const previous = logEntries.at(-1);
+			if (previous?.message === message) {
+				previous.count += 1;
+			} else {
+				logEntries.push({ time, message, count: 1 });
+				if (logEntries.length > 120) logEntries.shift();
+			}
+			robotLog.textContent = logEntries.map((entry) => `${entry.time} ${entry.message}${entry.count > 1 ? ` ×${entry.count}` : ""}`).join("\n") || "Log cleared.";
+			robotLog.scrollTop = robotLog.scrollHeight;
+		}
+
+		function setStatus(message, type = "") {
+			status.textContent = message;
+			status.className = `status ${type}`;
+		}
+
+		function updateControls() {
+			const connected = robot.connected;
+			connectButton.textContent = connected ? "ROBOT CONNECTED" : "CONNECT ROBOT";
+			connectButton.disabled = connected;
+			stopButton.disabled = !connected;
+			directionButtons.forEach((button) => { button.disabled = !connected; });
+			speedButtons.forEach((button) => {
+				button.disabled = !connected;
+				button.classList.toggle("active", button.dataset.speed === robot.speed);
+				button.setAttribute("aria-pressed", String(button.dataset.speed === robot.speed));
+			});
+			rawCommand.disabled = !connected;
+			sendCommandButton.disabled = !connected;
+		}
+
+		async function stopRobot(reason = "Robot stopped.") {
+			if (!robot.connected) return;
+			try {
+				await robot.stop();
+				setStatus(reason, "connected");
+			} catch (error) {
+				setStatus(`Stop failed: ${error.message}`, "error");
+			}
+		}
+
+		connectButton.addEventListener("click", async () => {
+			try {
+				setStatus("Choose your PadBot in the Bluetooth dialog…");
+				addLog("CONNECT requested");
+				await robot.connect();
+				setStatus(`Connected to ${robot.device?.name || "PadBot"}. Hardware ${robot.hardwareVersion}; speed: ${robot.speed}.`, "connected");
+			} catch (error) {
+				setStatus(`Could not connect: ${error.message}`, "error");
+				addLog(`CONNECT ERROR: ${error.message}`);
+			} finally {
+				updateControls();
+			}
+		});
+
+		async function drive(direction) {
+			if (!robot.connected) return;
+			try {
+				await robot[direction]({ durationMs: 0, repeatMs: 220 });
+				setStatus(`${direction.replace(/([A-Z])/g, " $1")} — moving until STOP.`, "connected");
+			} catch (error) {
+				if (error.name !== "AbortError") setStatus(`Movement failed: ${error.message}`, "error");
+			}
+		}
+
+		directionButtons.forEach((button) => {
+			button.addEventListener("click", () => drive(button.dataset.direction));
+		});
+		speedButtons.forEach((button) => {
+			button.addEventListener("click", async () => {
+				if (!robot.connected) return;
+				try {
+					await robot.setSpeed(button.dataset.speed);
+					setStatus(`Speed set to ${robot.speed}.`, "connected");
+					updateControls();
+				} catch (error) {
+					setStatus(`Speed change failed: ${error.message}`, "error");
+				}
+			});
+		});
+		stopButton.addEventListener("click", () => stopRobot());
+
+		async function sendRawCommand() {
+			const command = rawCommand.value.trim();
+			if (!command || !robot.connected) return;
+			try {
+				await robot.sendCommand(command);
+				setStatus(`Sent ${command.toUpperCase()}. Press STOP to halt motion.`, "connected");
+			} catch (error) {
+				setStatus(`Command failed: ${error.message}`, "error");
+			}
+		}
+
+		sendCommandButton.addEventListener("click", sendRawCommand);
+		rawCommand.addEventListener("keydown", (event) => {
+			if (event.key === "Enter") {
+				event.preventDefault();
+				sendRawCommand();
+			}
+		});
+
+		const keys = { ArrowUp: "forward", ArrowDown: "backward", ArrowLeft: "left", ArrowRight: "right" };
+		window.addEventListener("keydown", (event) => {
+			if (event.repeat) return;
+			if (event.key === " " || event.key === "Escape") {
+				event.preventDefault();
+				stopRobot();
+			} else if (keys[event.key]) {
+				event.preventDefault();
+				drive(keys[event.key]);
+			}
+		});
+		window.addEventListener("blur", () => stopRobot("Robot stopped because the window lost focus."));
+		document.addEventListener("visibilitychange", () => {
+			if (document.hidden) stopRobot("Robot stopped because the page was hidden.");
+		});
+		robot.addEventListener("disconnected", () => {
+			setStatus("Robot disconnected.", "error");
+			addLog("DISCONNECTED");
+			updateControls();
+		});
+		robot.addEventListener("error", (event) => {
+			setStatus(`Robot error: ${event.detail.message}`, "error");
+			addLog(`ERROR: ${event.detail.message}`);
+		});
+		robot.addEventListener("hardwareversion", (event) => addLog(`RX decoded hardware version: ${event.detail.version}`));
+		robot.addEventListener("notification", (event) => {
+			const { text, decoded, characteristicUuid } = event.detail;
+			addLog(`RX ${String(characteristicUuid)} raw=${JSON.stringify(text)} decoded=${JSON.stringify(decoded)}`);
+		});
+		robot.addEventListener("command", (event) => {
+			const frames = event.detail.writes.map((write) => write.frame).join(", ");
+			addLog(`TX ${event.detail.command}: ${frames}${event.detail.failures.length ? ` (${event.detail.failures.length} failed write${event.detail.failures.length === 1 ? "" : "s"})` : ""}`);
+		});
+		clearLogButton.addEventListener("click", () => { logEntries.length = 0; addLog("Log cleared."); });
+
+		if (!PadBot.isSupported()) {
+			setStatus("Web Bluetooth is unavailable. Use Chrome or Edge on HTTPS or localhost.", "error");
+		}
+		updateControls();
+	</script>
+</body>
+</html>

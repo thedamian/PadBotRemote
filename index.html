@@ -123,6 +123,9 @@
 		.speeds { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); margin-top: 10px; }
 		.speeds button { min-height: 46px; padding: 8px; }
 		.speeds button.active { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-accent); }
+		.obstacle { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; margin-top: 10px; }
+		.obstacle button { min-height: 46px; }
+		.obstacle button.active { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-accent); }
 		.debug { border-top: 1px solid var(--cp-border); margin-top: 20px; padding-top: 18px; }
 		.debug h2 { font-size: 1rem; margin: 0 0 6px; }
 		.debug p { font-size: .85rem; margin: 0 0 10px; }
@@ -169,6 +172,10 @@
 				<button type="button" data-speed="maximum" disabled>LVL 5</button>
 				<button type="button" data-speed="top" disabled>TOP</button>
 			</div>
+			<div class="obstacle" aria-label="Obstacle avoidance controls">
+				<button id="obstacle-on" type="button" disabled>OBSTACLE ON</button>
+				<button id="obstacle-off" type="button" disabled>OBSTACLE OFF</button>
+			</div>
 			<section class="debug" aria-labelledby="debug-title">
 				<h2 id="debug-title">Command test</h2>
 				<p>Send one command. Motion commands continue until you press <strong>STOP</strong>.</p>
@@ -189,15 +196,17 @@
 
 	<script type="module">
 		// Versioned import prevents an already-open tab retaining the pre-sendCommand module.
-		import PadBot from "./RobotLibrary/padbot.js?v=20260921-sdk-protocol";
+		import PadBot from "./RobotLibrary/padbot.js?v=20260921-sdk-protocol-log";
 
-		const robot = new PadBot({ speed: "top", protocolMode: "sdk" });
+		const robot = new PadBot({ speed: "medium", obstacleAvoidance: false, protocolMode: "sdk" });
 		const connectButton = document.querySelector("#connect");
 		const stopButton = document.querySelector("#stop");
 		const directionButtons = [...document.querySelectorAll("[data-direction]")];
 		const speedButtons = [...document.querySelectorAll("[data-speed]")];
 		const rawCommand = document.querySelector("#raw-command");
 		const sendCommandButton = document.querySelector("#send-command");
+		const obstacleOnButton = document.querySelector("#obstacle-on");
+		const obstacleOffButton = document.querySelector("#obstacle-off");
 		const robotLog = document.querySelector("#robot-log");
 		const clearLogButton = document.querySelector("#clear-log");
 		const status = document.querySelector("#status");
@@ -232,6 +241,12 @@
 				button.classList.toggle("active", button.dataset.speed === robot.speed);
 				button.setAttribute("aria-pressed", String(button.dataset.speed === robot.speed));
 			});
+			obstacleOnButton.disabled = !connected;
+			obstacleOffButton.disabled = !connected;
+			obstacleOnButton.classList.toggle("active", robot.obstacleAvoidance === true);
+			obstacleOffButton.classList.toggle("active", robot.obstacleAvoidance === false);
+			obstacleOnButton.setAttribute("aria-pressed", String(robot.obstacleAvoidance === true));
+			obstacleOffButton.setAttribute("aria-pressed", String(robot.obstacleAvoidance === false));
 			rawCommand.disabled = !connected;
 			sendCommandButton.disabled = !connected;
 		}
@@ -285,6 +300,18 @@
 				}
 			});
 		});
+		async function setObstacleAvoidance(enabled) {
+			if (!robot.connected) return;
+			try {
+				await robot.setObstacleAvoidance(enabled);
+				setStatus(`Obstacle avoidance ${enabled ? "on" : "off"}.`, "connected");
+				updateControls();
+			} catch (error) {
+				setStatus(`Obstacle setting failed: ${error.message}`, "error");
+			}
+		}
+		obstacleOnButton.addEventListener("click", () => setObstacleAvoidance(true));
+		obstacleOffButton.addEventListener("click", () => setObstacleAvoidance(false));
 		stopButton.addEventListener("click", () => stopRobot());
 
 		async function sendRawCommand() {

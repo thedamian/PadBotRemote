@@ -317,7 +317,7 @@ test("default connect discovers writers and notifications, initializes E, &, ; a
   assert.equal(notify.notificationStarts, 1);
   assert.deepEqual(info, {
     connected: true, deviceId: value.device.id, deviceName: value.device.name,
-    serviceUuid: 0xfff0, writeUuids: [0xfff1, 0xfff2], notifyUuid: 0xfff3, protocolMode: "auto", hardwareVersion: null,
+    serviceUuid: 0xfff0, writeUuids: [0xfff1, 0xfff2], notifyUuid: 0xfff3, protocolMode: "auto", hardwareVersion: null, obstacleAvoidance: null,
   });
   assert.deepEqual(connectionEvent, info);
   assert.equal(value.bot.device, value.device);
@@ -345,15 +345,19 @@ test("sdk protocol learns the hardware version then uses its single required fra
     const bytes = new TextEncoder().encode("ver\t1902");
     notify.notify(new DataView(bytes.buffer));
   };
-  const value = rig(context, { protocolMode: "sdk", initialize: true, speed: "top" }, [writer, notify]);
+  const value = rig(context, { protocolMode: "sdk", initialize: true, speed: "top", obstacleAvoidance: false }, [writer, notify]);
   let reportedVersion;
   value.bot.addEventListener("hardwareversion", (event) => { reportedVersion = event.detail.version; });
   await value.bot.connect();
   assert.equal(value.bot.hardwareVersion, 1902);
   assert.equal(reportedVersion, 1902);
-  assert.deepEqual(frames(writer), [";", "p]q", "p&q"]);
+  assert.equal(value.bot.obstacleAvoidance, false);
+  assert.deepEqual(frames(writer), [";", "p]q", "pZq"]);
   await value.bot.forward({ repeatMs: 0 });
-  assert.deepEqual(frames(writer), [";", "p]q", "p&q", "pX1q"]);
+  assert.deepEqual(frames(writer), [";", "p]q", "pZq", "pX1q"]);
+  await value.bot.turnOnObstacleDetection();
+  assert.equal(value.bot.obstacleAvoidance, true);
+  assert.deepEqual(frames(writer), [";", "p]q", "pZq", "pX1q", "pYq"]);
 });
 
 test("explicit UUIDs and supplied device select only the requested characteristics", async (context) => {

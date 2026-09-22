@@ -1,28 +1,12 @@
 # PadBot JavaScript library
 
-Dependency-free browser ES module for connecting to and driving PadBot-compatible BLE robots. This copy is self-contained so `Remote` can be served directly (for example by the existing localhost server). There is no API key, camera, microphone, or automatic wandering.
+Dependency-free browser ES module for connecting to and driving PadBot-compatible BLE robots. 
 
-## Requirements and first use
+Usage is simply. Start a website with this code (no compilation or node required) in fact. I'll give you one: [https://thedamian.github.io/PadBotRemote](https://thedamian.github.io/PadBotRemote)
 
-- Serve your page over HTTPS or localhost, not `file://`.
-- Use a browser/platform with Web Bluetooth (typically Chrome or Edge). `PadBot.isSupported()` checks API availability, not whether Bluetooth hardware is powered on or pairing will succeed.
-- Call `robot.connect()` directly from a user click to open the Bluetooth chooser. Grant permission to the intended robot.
-- Do not run this controller and the existing app's autonomy against the same robot simultaneously.
-- Start at low speed, in a clear area away from edges, with a physical stop/power control available.
+## LOOK OUT FOR:
+if the robot seems to only go slowly and turn left and right just fine but not forward. turn "Obsticle avoidance off"
 
-`example.js` exports a configured controller and callable examples. It does not connect or move anything on import. In your own module, import its `connectRobot`, `driveForwardBriefly`, `stopRobot`, and other functions and call them from your UI. Alternatively, construct `new PadBot({ speed: "low" })` directly.
-
-## What the existing app taught us
-
-Sources: [`../app.js`](../app.js), [`../index.html`](../index.html), and the native-app research in [`../documentation.md`](../documentation.md).
-
-1. Local control uses Bluetooth Low Energy, not Wi-Fi. Default service: `0xfff0`.
-2. Discovery filters include that service and name prefixes `PadBot` / `padbot` / `PA6208` (alternatives, not combined requirements).
-3. Commands are UTF-8 strings. The official PadBot Android SDK maps forward/backward to `X1`/`X4` and left/right to `X2`/`X3`; speed is a separate command, so never prefix a motion token with a speed number (`2X1` is not the observed protocol).
-4. Without an explicit write UUID, the app writes to **every writable characteristic** in the selected service. The library preserves this compatibility behavior; configure a known motor characteristic when possible.
-5. The original SDK first sends a raw hardware query (`;`) and waits for a `ver` notification. In `sdk` mode, the library then sends exactly one frame: `mX1n` for hardware 1802–1899 or 2000–2099; `pX1q` for 1902–1999; raw otherwise. This is the recommended mode for PA6208.
-6. Manual holding repeats at 220 ms; stop is sent immediately and repeated after 90 and 180 ms. Library repeats wait until the prior write completes, avoiding overlapping GATT operations.
-7. In `sdk` mode initialization sends `;`, waits for the version reply, then sends the selected speed and infrared query. It never sends a movement command. Set `initialize: false` to omit these writes.
 
 ### Command map
 

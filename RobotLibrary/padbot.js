@@ -1,6 +1,6 @@
 /** Browser-ready PadBot BLE controller. Local so the Remote also works when served as site root. */
 // Decompiled from the original PadBot 3.1 Android SDK bundled in ../PadBot-SDK.
-export const COMMANDS = Object.freeze({ STOP: "0", FORWARD: "X1", BACKWARD: "X4", LEFT: "X2", RIGHT: "X3", FORWARD_LEFT: "XG", FORWARD_RIGHT: "XK", BACKWARD_LEFT: "XO", BACKWARD_RIGHT: "XS", HEAD_UP: "X5", HEAD_DOWN: "XA", SPEED_LOW: "D", SPEED_MEDIUM: "E", SPEED_FAST: "V", SPEED_FASTER: "W", SPEED_MAXIMUM: "[", SPEED_TOP: "]", SPEED_SETUP: "]", BATTERY: ":", INFRARED: "&", INFO: ":", HARDWARE: ";", DOCK: "<", UNDOCK: ">" });
+export const COMMANDS = Object.freeze({ STOP: "0", FORWARD: "X1", BACKWARD: "X4", LEFT: "X2", RIGHT: "X3", FORWARD_LEFT: "XG", FORWARD_RIGHT: "XK", BACKWARD_LEFT: "XO", BACKWARD_RIGHT: "XS", HEAD_UP: "X5", HEAD_DOWN: "XA", SPEED_LOW: "D", SPEED_MEDIUM: "E", SPEED_FAST: "V", SPEED_FASTER: "W", SPEED_MAXIMUM: "[", SPEED_TOP: "]", SPEED_SETUP: "]", OBSTACLE_ON: "Y", OBSTACLE_OFF: "Z", BATTERY: ":", INFRARED: "&", INFO: ":", HARDWARE: ";", DOCK: "<", UNDOCK: ">" });
 const DIRECTIONS = Object.freeze({ forward: "X1", backward: "X4", left: "X2", right: "X3", forwardLeft: "XG", forwardRight: "XK", backwardLeft: "XO", backwardRight: "XS", headUp: "X5", headDown: "XA" });
 const SPEEDS = Object.freeze({ low: "D", medium: "E", fast: "V", faster: "W", maximum: "[", top: "]" });
 const MAX_DELAY = 2147483647;
@@ -19,7 +19,8 @@ export function decodePadBotResponse(value) {
   const match = /^(ver|rid|vol|inf|vel|hac|hds|flo|mic|wak|msg)\b[\t ,:=]*(.*)$/i.exec(raw);
   if (!match) return { type: "unknown", raw };
   const field = match[1].toLowerCase();
-  const payload = match[2].trim();
+  // PadBot's BLE telemetry terminates records with `#\r\n`; keep it in `raw`, not in decoded data.
+  const payload = match[2].trim().replace(/#$/, "").trim();
   const numericList = payload.split(",").map((item) => Number(item.trim()));
   switch (field) {
     case "ver": return { type: "hardware-version", raw, hardwareVersion: Number.parseInt(payload, 10), payload };
@@ -35,20 +36,22 @@ function delayValue(value, name) { if (!Number.isInteger(value) || value < 0 || 
 function aborted() { return new DOMException("Command superseded or connection closed.", "AbortError"); }
 
 export class PadBot extends EventTarget {
-  #bluetooth; #options; #device = null; #server = null; #service = null; #targets = []; #notify = null; #ready = false; #connecting = null; #disconnecting = null; #queue = Promise.resolve(); #session = 0; #motion = 0; #timers = new Set(); #speed; #lastCommand = null; #hardwareVersion = null; #hardwareWaiters = new Set();
-  constructor({ bluetooth = globalThis.navigator?.bluetooth, serviceUuid = "0xfff0", writeUuid = null, notifyUuid = null, protocolMode = "auto", speed = "medium", initialize = true } = {}) {
+  #bluetooth; #options; #device = null; #server = null; #service = null; #targets = []; #notify = null; #ready = false; #connecting = null; #disconnecting = null; #queue = Promise.resolve(); #session = 0; #motion = 0; #timers = new Set(); #speed; #lastCommand = null; #hardwareVersion = null; #hardwareWaiters = new Set(); #obstacleAvoidance = null;
+  constructor({ bluetooth = globalThis.navigator?.bluetooth, serviceUuid = "0xfff0", writeUuid = null, notifyUuid = null, protocolMode = "auto", speed = "medium", obstacleAvoidance = null, initialize = true } = {}) {
     super();
     if (!["raw", "mn", "pq", "auto", "sdk"].includes(protocolMode)) throw new RangeError("protocolMode must be raw, mn, pq, auto, or sdk.");
+    if (obstacleAvoidance !== null && typeof obstacleAvoidance !== "boolean") throw new TypeError("obstacleAvoidance must be true, false, or null.");
     this.#bluetooth = bluetooth; this.#speed = speedName(speed);
-    this.#options = { serviceUuid: normalizeUuid(serviceUuid), writeUuid: writeUuid == null || writeUuid === "" ? null : normalizeUuid(writeUuid), notifyUuid: notifyUuid == null || notifyUuid === "" ? null : normalizeUuid(notifyUuid), protocolMode, initialize };
+    this.#options = { serviceUuid: normalizeUuid(serviceUuid), writeUuid: writeUuid == null || writeUuid === "" ? null : normalizeUuid(writeUuid), notifyUuid: notifyUuid == null || notifyUuid === "" ? null : normalizeUuid(notifyUuid), protocolMode, obstacleAvoidance, initialize };
   }
   static isSupported() { return Boolean(globalThis.navigator?.bluetooth); }
   get connected() { return this.#ready && Boolean(this.#server?.connected); }
   get device() { return this.#device; }
   get speed() { return this.#speed; }
   get hardwareVersion() { return this.#hardwareVersion; }
+  get obstacleAvoidance() { return this.#obstacleAvoidance; }
   get lastCommand() { return this.#lastCommand; }
-  get connectionInfo() { return { connected: this.connected, deviceId: this.#device?.id ?? null, deviceName: this.#device?.name ?? null, serviceUuid: this.#service?.uuid ?? null, writeUuids: this.#targets.map((item) => item.uuid), notifyUuid: this.#notify?.uuid ?? null, protocolMode: this.#options.protocolMode, hardwareVersion: this.#hardwareVersion }; }
+  get connectionInfo() { return { connected: this.connected, deviceId: this.#device?.id ?? null, deviceName: this.#device?.name ?? null, serviceUuid: this.#service?.uuid ?? null, writeUuids: this.#targets.map((item) => item.uuid), notifyUuid: this.#notify?.uuid ?? null, protocolMode: this.#options.protocolMode, hardwareVersion: this.#hardwareVersion, obstacleAvoidance: this.#obstacleAvoidance }; }
   #emit(type, detail) { const event = new Event(type); Object.defineProperty(event, "detail", { value: detail }); this.dispatchEvent(event); }
   connect({ device } = {}) { if (this.#disconnecting) return Promise.reject(new Error("Disconnect is in progress.")); if (this.#connecting) return this.#connecting; if (this.connected) return Promise.resolve(this.connectionInfo); this.#connecting = this.#connect(device).finally(() => { this.#connecting = null; }); return this.#connecting; }
   async #connect(device) {
@@ -68,7 +71,9 @@ export class PadBot extends EventTarget {
         if (this.#options.protocolMode === "sdk") {
           await this.queryHardwareVersion({ waitMs: 1500 });
           await this.setSpeed(this.#speed);
-          await this.queryInfrared();
+          if (this.#options.obstacleAvoidance !== null) await this.setObstacleAvoidance(this.#options.obstacleAvoidance);
+          // `&` starts a continuous obstacle telemetry stream on original PadBots.
+          // Do not enable it during normal driving; callers can request it explicitly for diagnosis.
         } else {
           await this.setSpeed(this.#speed);
           await this.queryInfrared();
@@ -104,7 +109,7 @@ export class PadBot extends EventTarget {
       this.#hardwareWaiters.add(waiter);
     });
   }
-  #cleanup() { this.#cancelMotion(); this.#session += 1; this.#ready = false; for (const waiter of this.#hardwareWaiters) waiter.reject(aborted()); this.#hardwareWaiters.clear(); this.#notify?.removeEventListener("characteristicvaluechanged", this.#onNotification); this.#device?.removeEventListener("gattserverdisconnected", this.#onDisconnected); this.#server = null; this.#service = null; this.#targets = []; this.#notify = null; this.#lastCommand = null; this.#hardwareVersion = null; }
+  #cleanup() { this.#cancelMotion(); this.#session += 1; this.#ready = false; for (const waiter of this.#hardwareWaiters) waiter.reject(aborted()); this.#hardwareWaiters.clear(); this.#notify?.removeEventListener("characteristicvaluechanged", this.#onNotification); this.#device?.removeEventListener("gattserverdisconnected", this.#onDisconnected); this.#server = null; this.#service = null; this.#targets = []; this.#notify = null; this.#lastCommand = null; this.#hardwareVersion = null; this.#obstacleAvoidance = null; }
   #assertConnected() { if (!this.connected) throw new Error("Robot is not connected."); if (this.#disconnecting) throw new Error("Disconnect is in progress."); }
   #cancelMotion() { for (const timer of this.#timers) clearTimeout(timer); this.#timers.clear(); return ++this.#motion; }
   #schedule(callback, delay, token) { const timer = setTimeout(() => { this.#timers.delete(timer); if (token !== this.#motion || !this.connected) return; callback().catch((error) => { if (error.name !== "AbortError") this.#emit("error", error); }); }, delay); this.#timers.add(timer); }
@@ -131,6 +136,9 @@ export class PadBot extends EventTarget {
   }
   async sendCommand(command) { if (typeof command !== "string" || !command.length) throw new TypeError("Command must be a non-empty string."); this.#assertConnected(); if (command === COMMANDS.STOP) return this.stop(); return this.#send(command, this.#cancelMotion()); }
   async setSpeed(value) { const name = speedName(value); this.#assertConnected(); const result = await this.#send(SPEEDS[name]); this.#speed = name; return result; }
+  async setObstacleAvoidance(enabled) { if (typeof enabled !== "boolean") throw new TypeError("enabled must be a boolean."); this.#assertConnected(); const result = await this.#send(enabled ? COMMANDS.OBSTACLE_ON : COMMANDS.OBSTACLE_OFF); this.#obstacleAvoidance = enabled; this.#emit("obstacleavoidance", { enabled }); return result; }
+  turnOnObstacleDetection() { return this.setObstacleAvoidance(true); }
+  turnOffObstacleDetection() { return this.setObstacleAvoidance(false); }
   async drive(direction, { durationMs = 0, repeatMs = 220 } = {}) { if (typeof direction !== "string" || !Object.hasOwn(DIRECTIONS, direction)) throw new RangeError("Unknown drive direction."); delayValue(durationMs, "durationMs"); delayValue(repeatMs, "repeatMs"); this.#assertConnected(); const token = this.#cancelMotion(); const command = DIRECTIONS[direction]; const send = async () => { try { const result = await this.#send(command, token); if (token === this.#motion && repeatMs) this.#schedule(send, repeatMs, token); return result; } catch (error) { if (token === this.#motion && this.connected && !this.#disconnecting) await this.stop().catch(() => {}); throw error; } }; const result = await send(); if (token === this.#motion && durationMs) this.#schedule(() => this.stop(), durationMs, token); return result; }
   forward(options) { return this.drive("forward", options); } backward(options) { return this.drive("backward", options); } left(options) { return this.drive("left", options); } right(options) { return this.drive("right", options); } forwardLeft(options) { return this.drive("forwardLeft", options); } forwardRight(options) { return this.drive("forwardRight", options); } backwardLeft(options) { return this.drive("backwardLeft", options); } backwardRight(options) { return this.drive("backwardRight", options); } headUp(options) { return this.drive("headUp", options); } headDown(options) { return this.drive("headDown", options); }
   async stop() { this.#assertConnected(); const token = this.#cancelMotion(); this.#schedule(() => this.#send(COMMANDS.STOP, token), 90, token); this.#schedule(() => this.#send(COMMANDS.STOP, token), 180, token); return this.#send(COMMANDS.STOP, token); }
